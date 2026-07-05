@@ -1,0 +1,11 @@
+node_modules/
+*.json
+!package.json
+!package-lock.json
+!n8n_job_search_workflow.json
+*.png
+*.txt
+*.js
+!linkedin_scraper.js
+!linkedin_recruiter_scraper.js
+.DS_Store

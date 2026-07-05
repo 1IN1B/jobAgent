@@ -1,0 +1,454 @@
+{
+  "name": "Recruiter Job Application Workflow (Universal)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "e0e854fa-8cf7-4f4a-8d19-4a00db441e8c",
+      "name": "When clicking \"Execute Workflow\"",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        80,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "groq_api_key",
+              "value": "YOUR_GROQ_API_KEY_HERE"
+            },
+            {
+              "name": "recruiters_json_path",
+              "value": "/Users/bibhuti/.n8n-files/linkedin_posts.json"
+            },
+            {
+              "name": "cover_letter_template",
+              "value": "Dear [Recruiter Name],\n\nI came across your post and I am highly interested in the opportunity at [Company Name].\n\nI have experience in Full Stack development with React, Next.js, TypeScript, and Node.js. I am a quick learner and I can easily mold into your tech stack to start contributing effectively.\n\nYou can view my resume here: https://drive.google.com/file/d/1bjhBnMVeGDNWFr7yFraxt7_l_I1Ivyf9/view?usp=sharing I would appreciate the opportunity to connect and discuss how I could be a fit for your team.\n\nBest regards,\nBibhuti"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a4d3b6bf-7e9b-4e9b-9860-5f25a3d0f00f",
+      "name": "Define Configuration",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        260,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "filePath": "={{ $('Define Configuration').item.json.recruiters_json_path }}",
+        "dataPropertyName": "recruiters"
+      },
+      "id": "e3ee9e55-d147-497b-bb66-c9569fa12b9a",
+      "name": "Read Recruiters JSON",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [
+        460,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "filePath": "/Users/bibhuti/.n8n-files/processed_emails.txt",
+        "dataPropertyName": "processedEmails"
+      },
+      "id": "e3ee9e55-d147-497b-bb66-c9569fa12b9b",
+      "name": "Read Processed Emails",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [
+        560,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "let fileContent = \"\";\ntry {\n  const binaryBuffer = await this.helpers.getBinaryDataBuffer(0, 'recruiters');\n  fileContent = binaryBuffer.toString('utf8');\n} catch (e) {\n  throw new Error(\"Failed to read binary recruiters file: \" + e.message);\n}\n\nlet processedEmails = \"\";\ntry {\n  const pBuffer = await this.helpers.getBinaryDataBuffer(0, 'processedEmails');\n  processedEmails = pBuffer.toString('utf8');\n} catch (e) {\n  // File might be empty, ignore\n}\nconst sentEmailsArray = processedEmails.split('\\n').map(e => e.trim());\n\nlet posts;\ntry {\n  posts = JSON.parse(fileContent);\n} catch (e) {\n  const snippet = fileContent.substring(0, 150);\n  throw new Error(`Failed to parse JSON. First 150 chars: \"${snippet}\" | Error: ${e.message}`);\n}\n\nconst recruiters = [];\nfor (const post of posts) {\n  if (post.emails && post.emails.length > 0) {\n    for (let email of post.emails) {\n      email = email.trim().replace(/\\.+$/, \"\");\n      const emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n      if (emailRegex.test(email) && !sentEmailsArray.includes(email)) {\n        recruiters.push({\n          recruiter_name: post.poster_name || \"Hiring Team\",\n          company: post.company || \"\",\n          email: email,\n          post_text: post.text || \"\",\n          time_posted: post.time_posted || \"\"\n        });\n      }\n    }\n  }\n}\n\nreturn recruiters.map(r => ({ json: r }));"
+      },
+      "id": "76495be1-ca90-4822-ba78-9e5c70a92d4b",
+      "name": "Parse & Filter Recruiters",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "b0a6fb7b-e7b3-4621-a1b7-d1cb239dfc82",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [
+        880,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "jsonParameters": true,
+        "headerParametersJson": "={\"Authorization\": \"Bearer {{ $('Define Configuration').item.json.groq_api_key }}\"}",
+        "bodyParametersJson": "={\"model\": \"qwen/qwen3.6-27b\", \"messages\": [{\"role\": \"user\", \"content\": {{ JSON.stringify($json.prompt_text) }} }], \"temperature\": 0.7, \"max_tokens\": 2048}",
+        "options": {}
+      },
+      "id": "23a1a5b8-5a41-4770-ae4a-10f80bb1ad8c",
+      "name": "Customize Cover Letter",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        2100,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const groqResponse = $input.item.json;\nconst recruiter = $('Split In Batches').all(0, $runIndex)[0].json;\n\nlet customizedCoverLetter = \"\";\nlet fallbackTemplate = \"Dear \" + (recruiter.recruiter_name || \"Hiring Team\") + \",\\n\\nI came across your post and I am highly interested in the opportunity.\\n\\nI have experience in Full Stack development with React, Next.js, TypeScript, and Node.js. I am a quick learner and I can easily mold into your tech stack to start contributing effectively.\\n\\nYou can view my resume here: https://drive.google.com/file/d/1bjhBnMVeGDNWFr7yFraxt7_l_I1Ivyf9/view?usp=sharing\\n\\nBest regards,\\nBibhuti\";\n\ntry {\n  const message = groqResponse.choices[0].message;\n  let content = message.content || \"\";\n  \n  // Strip out any <think> blocks in case the API still generates them\n  content = content.replace(/<think>[\\s\\S]*?<\\/think>/gi, \"\").trim();\n  \n  // Extract JSON object safely\n  const jsonStart = content.indexOf('{');\n  const jsonEnd = content.lastIndexOf('}');\n  \n  if (jsonStart !== -1 && jsonEnd !== -1) {\n    const jsonStr = content.slice(jsonStart, jsonEnd + 1);\n    const parsed = JSON.parse(jsonStr);\n    customizedCoverLetter = parsed.cover_letter || \"\";\n  }\n  \n  // Failsafe\n  if (!customizedCoverLetter || customizedCoverLetter.length < 50 || (!customizedCoverLetter.includes(\"Dear \") && !customizedCoverLetter.includes(\"Hi \"))) {\n    customizedCoverLetter = fallbackTemplate;\n  }\n} catch (e) {\n  customizedCoverLetter = fallbackTemplate;\n}\n\nreturn {\n  json: {\n    ...recruiter,\n    customized_cover_letter: customizedCoverLetter\n  }\n};"
+      },
+      "id": "fd9e9b02-69cf-4a47-bd7e-52dbf68b3f27",
+      "name": "Finalize Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2300,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.choices[0].message.content.toUpperCase().includes(\"YES\") }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if-job-check-node",
+      "name": "Check If Job",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "bibhuticodes@gmail.com",
+        "toEmail": "={{ $json.email }}",
+        "subject": "=Application for Developer Role - {{ $json.recruiter_name }}",
+        "text": "={{ $json.customized_cover_letter }}",
+        "options": {}
+      },
+      "id": "a9ef38bb-78eb-4ee1-b0db-6e7e60b2eb30",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 1,
+      "position": [
+        2500,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const recruiter = $('Split In Batches').all(0, $runIndex)[0].json;\nconst email = recruiter.email + '\\n';\nreturn {\n  json: $input.item.json,\n  binary: {\n    ...$input.item.binary,\n    logData: {\n      data: Buffer.from(email).toString('base64'),\n      mimeType: 'text/plain',\n      fileName: 'log.txt'\n    }\n  }\n};"
+      },
+      "id": "code-binary-log-1234",
+      "name": "Prepare Binary Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2700,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "/Users/bibhuti/.n8n-files/processed_emails.txt",
+        "dataPropertyName": "logData",
+        "options": {
+          "append": true
+        }
+      },
+      "id": "file-write-log-5678",
+      "name": "Log Processed Email",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        2900,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Native Wait nodes suspend the workflow to the DB, which can reset loop states in n8n V1.\n// We use a simple JS delay instead to keep the loop memory intact.\nawait new Promise(resolve => setTimeout(resolve, 30000));\nreturn $input.all();"
+      },
+      "id": "e9ef38bb-78eb-4ee1-b0db-6e7e60b2eb31",
+      "name": "Wait 30s",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3100,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "jsonParameters": true,
+        "headerParametersJson": "={\"Authorization\": \"Bearer {{ $('Define Configuration').item.json.groq_api_key }}\"}",
+        "bodyParametersJson": "={\"model\": \"qwen/qwen3.6-27b\", \"messages\": [{\"role\": \"user\", \"content\": {{ JSON.stringify(\"Analyze the following LinkedIn post and determine if it is a recruiter or company advertising an actual job vacancy, OR if it's just a candidate looking for a job or sharing general advice.\\n\\nLinkedIn Post by \" + $json.recruiter_name + \":\\n\" + $json.post_text + \"\\n\\nReply ONLY with the word \\\"YES\\\" if it is a real job vacancy, or \\\"NO\\\" if it is not.\") }} }], \"temperature\": 0.1}",
+        "options": {}
+      },
+      "id": "check-job-vacancy-node",
+      "name": "Check Job Vacancy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1280,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "prompt_text",
+              "value": "=You are a professional assistant helping me apply for jobs. Below is my cover letter template:\n---\n{{ $('Define Configuration').item.json.cover_letter_template }}\n---\n\nHere is the details of a LinkedIn post:\nRecruiter Name: {{ $('Split In Batches').all(0, $runIndex)[0].json.recruiter_name }}\nCompany Name: {{ $('Split In Batches').all(0, $runIndex)[0].json.company || 'their company' }}\nJob Posting:\n{{ $('Split In Batches').all(0, $runIndex)[0].json.post_text }}\n\nPlease analyze the post to understand the core requirements, and then tailor my cover letter template to fit this job posting.\nInstructions:\n1. Address the recruiter by name (use '{{ $('Split In Batches').all(0, $runIndex)[0].json.recruiter_name }}' if it is a real person's name, otherwise 'Hiring Team').\n2. Mention 1-2 specific technologies or requirements from the post, but DO NOT boast or exaggerate my skills. Keep the tone humble.\n3. Emphasize that I am a quick learner who can easily mold into their specific tech stack.\n4. Keep the cover letter concise (under 250 words) and highly professional.\n5. You MUST output your response as a valid JSON object with exactly two keys: \"analysis\" and \"cover_letter\".\nExample:\n{\n  \"analysis\": \"Your brief analysis of the job requirements\",\n  \"cover_letter\": \"Your final tailored cover letter\"\n}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c6237cbe-4c4f-4d43-85b4-22b271d49db8",
+      "name": "Prepare Prompt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        1900,
+        320
+      ]
+    }
+  ],
+  "connections": {
+    "When clicking \"Execute Workflow\"": {
+      "main": [
+        [
+          {
+            "node": "Define Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Define Configuration": {
+      "main": [
+        [
+          {
+            "node": "Read Recruiters JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Recruiters JSON": {
+      "main": [
+        [
+          {
+            "node": "Read Processed Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Processed Emails": {
+      "main": [
+        [
+          {
+            "node": "Parse & Filter Recruiters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Filter Recruiters": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [
+          {
+            "node": "Check Job Vacancy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Prompt": {
+      "main": [
+        [
+          {
+            "node": "Customize Cover Letter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Customize Cover Letter": {
+      "main": [
+        [
+          {
+            "node": "Finalize Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If Job": {
+      "main": [
+        [
+          {
+            "node": "Prepare Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 30s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email": {
+      "main": [
+        [
+          {
+            "node": "Prepare Binary Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Binary Log": {
+      "main": [
+        [
+          {
+            "node": "Log Processed Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Processed Email": {
+      "main": [
+        [
+          {
+            "node": "Wait 30s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 30s": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Check Prompt": {
+      "main": [
+        [
+          {
+            "node": "Check Job Vacancy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Job Vacancy": {
+      "main": [
+        [
+          {
+            "node": "Check If Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Check Result": {
+      "main": [
+        [
+          {
+            "node": "Check If Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Data": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionTimeout": 7200
+  },
+  "id": "recruiter_email_sender",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}
