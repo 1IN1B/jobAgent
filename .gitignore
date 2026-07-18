@@ -9,3 +9,4 @@ node_modules/
 !linkedin_scraper.js
 !linkedin_recruiter_scraper.js
 .DS_Store
+.env

@@ -1,10 +1,11 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const OUTPUT_FILE = path.join(require('os').homedir(), '.n8n-files', 'linkedin_posts.json');
 const SESSION_FILE = path.join(__dirname, 'linkedin_session.json');
-const SEARCH_URL = 'https://www.linkedin.com/search/results/content/?keywords=hiring%20react.js&origin=SWITCH_SEARCH_VERTICAL';
+const SEARCH_URL = process.env.LINKEDIN_SEARCH_URL || 'https://www.linkedin.com/search/results/all/?keywords=hiring%20node.js&origin=GLOBAL_SEARCH_HEADER';
 
 function delay(ms) {
   return new Promise(r => setTimeout(r, ms + Math.random() * 2000));
